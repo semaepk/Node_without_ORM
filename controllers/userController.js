@@ -1,6 +1,7 @@
 const userService = require('../service/userService')
 const {validationResult} = require('express-validator')
 const ApiError = require('../exceptions/apiError')
+const jwtDecode = require('jwt-decode')
 
 class UserController {
     
@@ -19,7 +20,9 @@ class UserController {
             const {email, password, nickname} = req.body
             const userData = await userService.signin(email, password, nickname) 
             res.cookie('refreshToken', userData.refreshToken, {maxAge: 30 * 24 * 60 * 60 * 1000, httpOnly: true})
-            return res.json(userData)
+            
+            const {token, expire} = userData
+            return res.json({token, expire})
 
         } catch (e) {
             next(e)
@@ -32,7 +35,10 @@ class UserController {
             const {email, password} = req.body
             const userData = await userService.login(email, password)
             res.cookie('refreshToken', userData.refreshToken, {maxAge: 30 * 24 * 60 * 60 * 1000, httpOnly: true})
-            return res.json(userData)
+            
+            const {token, expire} = userData
+
+            return res.json({token, expire})
  
          } catch (e) {
              next(e)
@@ -40,32 +46,57 @@ class UserController {
 
     }
 
-    async logout(req, res) {
+    async logout(req, res, next) {
 
+        try {
+            const {refreshToken} = req.cookies
+            const token = await userService.logout(refreshToken)
+            res.clearCookie('refreshToken')
+            return res.json(token)
+        } catch (e) {
+            next(e)
+        }
         
     }
 
-    async check(req, res) {
-        const token = generateJwt(req.user.uid, req.user.email, req.user.nickname)
-        return res.json({token})
+    async getUser(req, res, next) {
+
+        try {
+
+            const {uid} = jwtDecode(req.cookies.refreshToken)
+            const user = await userService.getUser(uid) 
+            const {email, nickname} = user.rows[0]
+
+            return res.json({email, nickname})
+         } catch (e) {
+             next(e) 
+         }
+
     }
 
     async updateUser(req, res) {
 
-        const id = req.params.id
-        const user = await db.query(`SELECT * FROM users where email = $1`, [email]).row[0]
+        const {uid} = jwtDecode(req.cookies.refreshToken)
+        const user = await userService.updateUser(uid, req.body.email, req.body.password, req.body.nickname)
+        const {email, nickname} = user.rows[0]
 
-        const token = generateJwt(req.user.uid, req.user.email, req.user.nickname)
-        return res.json({token})
+        return res.json({email, nickname})
     }
 
     async delete(req, res) {
 
-        const id = req.params.id
-        const user = await db.query(`SELECT * FROM users where email = $1`, [email]).row[0]
+        try {
+            const {refreshToken} = req.cookies
+            const {uid} = jwtDecode(refreshToken)
 
-        const token = generateJwt(req.user.uid, req.user.email, req.user.nickname)
-        return res.json({token})
+            const token = await userService.logout(refreshToken)
+            await userService.delete(uid)
+            
+            res.clearCookie('refreshToken')
+            return res.json(token)
+        } catch (e) {
+            next(e)
+        }
     }
 }
 

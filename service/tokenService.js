@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken')
+const jwtDecode = require('jwt-decode')
 const db = require('../db')
 const UserDto = require('../dtos/userDto')
 
@@ -7,7 +8,7 @@ class TokenService {
     generateToken(payload){
         const token = jwt.sign(payload, process.env.JWT_ACCESS_KEY, {expiresIn:'30m'})
         const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_KEY, {expiresIn:'30d'})
-        console.log(token)
+
         return {
             token,
             refreshToken
@@ -18,9 +19,12 @@ class TokenService {
         
         const userDto = new UserDto(user)
         const tokens = new TokenService().generateToken({...userDto})
-        await new TokenService().saveToken(userDto.id, tokens.refreshToken) 
+        await new TokenService().saveToken(userDto.uid, tokens.refreshToken) 
+
+        const {exp, iat} = jwtDecode(tokens.token) 
+        const expire = exp - iat
         
-        return {...tokens, user: userDto}
+        return {...tokens, expire}
     }
 
     validateAccessToken(token){
@@ -61,7 +65,9 @@ class TokenService {
     }
 
     async findToken(refreshToken){
-        return await db.query(`SELECT * FROM tokens where refreshToken = $1`, [refreshToken])
+        
+        const foundedToken = await db.query(`SELECT * FROM tokens where refreshToken = $1`, [refreshToken])
+        return foundedToken.rows[0]
     }
  
 }
